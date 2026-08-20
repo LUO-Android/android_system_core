@@ -1374,6 +1374,14 @@ static void ProcessBootconfig() {
     });
 }
 
+static void SetSafetyNetProps() {
+    InitPropertySet("ro.boot.flash.locked", "1");
+    InitPropertySet("ro.boot.vbmeta.device_state", "locked");
+    InitPropertySet("ro.boot.verifiedbootstate", "green");
+    InitPropertySet("ro.boot.veritymode", "enforcing");
+    InitPropertySet("ro.build.tags", "release-keys");
+}
+
 void PropertyInit() {
     selinux_callback cb;
     cb.func_audit = PropertyAuditCallback;
@@ -1386,6 +1394,12 @@ void PropertyInit() {
     }
     if (!property_info_area.LoadDefaultPath()) {
         LOG(FATAL) << "Failed to load serialized property info file";
+    }
+
+    // Report a valid verified boot chain before parsing androidboot properties,
+    // which are read-only once set.
+    if (!IsRecoveryMode()) {
+        SetSafetyNetProps();
     }
 
     // If arguments are passed both on the command line and in DT,
