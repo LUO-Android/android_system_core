@@ -319,6 +319,8 @@ static BatteryMonitor::PowerSupplyType readRawPowerSupplyType(const String8& pat
             {"USB", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_USB},
             {"USB_DCP", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
             {"USB_HVDCP", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
+            {"USB_HVDCP_3", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
+            {"USB_HVDCP_3P5", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
             {"USB_CDP", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
             {"USB_ACA", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
             {"USB_C", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
@@ -326,6 +328,7 @@ static BatteryMonitor::PowerSupplyType readRawPowerSupplyType(const String8& pat
             {"USB_PD_DRP", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_USB},
             {"Wireless", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_WIRELESS},
             {"Dock", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_DOCK},
+            {"DASH", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
             {NULL, 0},
     };
     std::string buf;
@@ -336,7 +339,6 @@ static BatteryMonitor::PowerSupplyType readRawPowerSupplyType(const String8& pat
 
     auto ret = mapSysfsString(buf.c_str(), supplyTypeMap);
     if (!ret) {
-        KLOG_WARNING(LOG_TAG, "Unknown power supply type '%s'\n", buf.c_str());
         *ret = BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_UNKNOWN;
     }
 
@@ -555,6 +557,32 @@ void BatteryMonitor::updateValues(void) {
     }
 
     double MaxPower = 0;
+
+    // Rescan for the available charger types
+    std::unique_ptr<DIR, decltype(&closedir)> dir(opendir(POWER_SUPPLY_SYSFS_PATH), closedir);
+    if (dir == NULL) {
+        KLOG_ERROR(LOG_TAG, "Could not open %s\n", POWER_SUPPLY_SYSFS_PATH);
+    } else {
+        struct dirent* entry;
+        String8 path;
+
+        while ((entry = readdir(dir.get()))) {
+            const char* name = entry->d_name;
+
+            if (!strcmp(name, ".") || !strcmp(name, ".."))
+                continue;
+
+            const PowerSupplyType type = readPowerSupplyType(path, name);
+
+            // Handle device if it's a charger, otherwise do nothing.
+            updateChargerPresence(name, type);
+
+            // If it's a battery, get whatever battery information is available from it.
+            if (type == ANDROID_POWER_SUPPLY_TYPE_BATTERY) {
+                initWithBatteryDevice(name);
+            }
+        }
+    }
 
     for (const auto& chargerName : mChargerNames) {
         String8 path;

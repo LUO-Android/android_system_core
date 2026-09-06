@@ -447,13 +447,17 @@ std::vector<std::vector<std::string>> GetAllPartitionArgsNoSlot(FastbootDevice* 
 
 bool GetHardwareRevision(FastbootDevice* /* device */, const std::vector<std::string>& /* args */,
                          std::string* message) {
-    *message = android::base::GetProperty("ro.revision", "");
+    *message = android::base::GetProperty("ro.boot.hardware.revision", "");
+    if (message->empty()) {
+        *message = android::base::GetProperty("ro.revision", "");
+    }
     return true;
 }
 
-bool GetSuperPartitionName(FastbootDevice* /* device */, const std::vector<std::string>& /* args */,
+bool GetSuperPartitionName(FastbootDevice* device, const std::vector<std::string>& /* args */,
                            std::string* message) {
-    *message = fs_mgr_get_super_partition_name();
+    uint32_t slot_number = SlotNumberForSlotSuffix(device->GetCurrentSlot());
+    *message = fs_mgr_get_super_partition_name(slot_number);
     return true;
 }
 

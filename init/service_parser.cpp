@@ -203,9 +203,11 @@ Result<void> ServiceParser::ParseInterface(std::vector<std::string>&& args) {
     const std::string fullname = interface_name + "/" + instance_name;
 
     for (const auto& svc : *service_list_) {
-        if (svc->interfaces().count(fullname) > 0 && !service_->is_override()) {
-            return Error() << "Interface '" << fullname << "' redefined in " << service_->name()
-                           << " but is already defined by " << svc->name();
+        if (svc->interfaces().count(fullname) > 0) {
+            if (!svc->is_override() && !service_->is_override()) {
+                return Error() << "Interface '" << fullname << "' redefined in " << service_->name()
+                               << " but is already defined by " << svc->name();
+            }
         }
     }
 
@@ -544,9 +546,12 @@ Result<void> ServiceParser::ParseUser(std::vector<std::string>&& args) {
 // when we migrate to cgroups v2 while these hardcoded paths stay the same.
 static std::optional<const std::string> ConvertTaskFileToProfile(const std::string& file) {
     [[clang::no_destroy]] static const std::map<const std::string, const std::string> map = {
+            {"/dev/stune/top-app/tasks", "MaxPerformance"},
+            {"/dev/stune/foreground/tasks", "HighPerformance"},
             {"/dev/cpuset/camera-daemon/tasks", "CameraServiceCapacity"},
             {"/dev/cpuset/foreground/tasks", "ProcessCapacityHigh"},
             {"/dev/cpuset/system-background/tasks", "ServiceCapacityLow"},
+            {"/dev/stune/nnapi-hal/tasks", "NNApiHALPerformance"},
             {"/dev/blkio/background/tasks", "LowIoPriority"},
     };
     auto iter = map.find(file);
@@ -697,8 +702,9 @@ Result<void> ServiceParser::EndSection() {
     Service* old_service = service_list_->FindService(service_->name());
     if (old_service) {
         if (!service_->is_override()) {
-            return Error() << "ignored duplicate definition of service '" << service_->name()
-                           << "'";
+            LOG(WARNING) << "ignored duplicate definition of service '" << service_->name()
+                         << "'";
+            return {};
         }
 
         if (StartsWith(filename_, "/apex/") && !old_service->is_updatable()) {
