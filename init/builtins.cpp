@@ -99,6 +99,10 @@ static Result<Success> reboot_into_recovery(const std::vector<std::string>& opti
     return Success();
 }
 
+static bool IsLuoBootRecoveryGuardEnabled() {
+    return android::base::GetBoolProperty("ro.luo.legacy.boot_recovery_guard", false);
+}
+
 template <typename F>
 static void ForEachServiceInClass(const std::string& classname, F function) {
     for (const auto& service : ServiceList::GetInstance()) {
@@ -358,8 +362,10 @@ static Result<Success> do_mkdir(const BuiltinArguments& args) {
 
     if (fscrypt_is_native()) {
         if (fscrypt_set_directory_policy(args[1].c_str())) {
-            return reboot_into_recovery(
-                {"--prompt_and_wipe_data", "--reason=set_policy_failed:"s + args[1]});
+            if (IsLuoBootRecoveryGuardEnabled()) {
+                return reboot_into_recovery({"--reason=set_policy_failed:"s + args[1]});
+            }
+            return Error() << "Directory encryption policy failed; automatic recovery disabled";
         }
     }
     return Success();
@@ -587,12 +593,15 @@ static Result<Success> queue_fs_event(int code) {
         ActionManager::GetInstance().QueueEventTrigger("nonencrypted");
         return Success();
     } else if (code == FS_MGR_MNTALL_DEV_NEEDS_RECOVERY) {
-        /* Setup a wipe via recovery, and reboot into recovery */
         if (android::gsi::IsGsiRunning()) {
             return Error() << "cannot wipe within GSI";
         }
-        PLOG(ERROR) << "fs_mgr_mount_all suggested recovery, so wiping data via recovery.";
-        const std::vector<std::string> options = {"--wipe_data", "--reason=fs_mgr_mount_all" };
+        if (!IsLuoBootRecoveryGuardEnabled()) {
+            return Error() << "fs_mgr_mount_all suggested recovery; automatic recovery disabled";
+        }
+        /* Preserve user data and let recovery present its normal menu. */
+        PLOG(ERROR) << "fs_mgr_mount_all suggested recovery.";
+        const std::vector<std::string> options = {"--reason=fs_mgr_mount_all"};
         return reboot_into_recovery(options);
         /* If reboot worked, there is no return. */
     } else if (code == FS_MGR_MNTALL_DEV_FILE_ENCRYPTED) {
@@ -1142,9 +1151,12 @@ static Result<Success> ExecWithRebootOnFailure(const std::string& reboot_reason,
         if (siginfo.si_code != CLD_EXITED || siginfo.si_status != 0) {
             // TODO (b/122850122): support this in gsi
             if (fscrypt_is_native() && !android::gsi::IsGsiRunning()) {
+                if (!IsLuoBootRecoveryGuardEnabled()) {
+                    LOG(ERROR) << "Failure (automatic recovery disabled): " << reboot_reason;
+                    return;
+                }
                 LOG(ERROR) << "Rebooting into recovery, reason: " << reboot_reason;
-                if (auto result = reboot_into_recovery(
-                            {"--prompt_and_wipe_data", "--reason="s + reboot_reason});
+                if (auto result = reboot_into_recovery({"--reason="s + reboot_reason});
                     !result) {
                     LOG(FATAL) << "Could not reboot into recovery: " << result.error();
                 }

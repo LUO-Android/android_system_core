@@ -38,6 +38,7 @@
 #include <android-base/chrono_utils.h>
 #include <android-base/file.h>
 #include <android-base/logging.h>
+#include <android-base/parseint.h>
 #include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
@@ -77,6 +78,7 @@ using namespace std::string_literals;
 
 using android::base::boot_clock;
 using android::base::GetProperty;
+using android::base::ParseUint;
 using android::base::ReadFileToString;
 using android::base::StringPrintf;
 using android::base::Timer;
@@ -106,6 +108,18 @@ static bool load_debug_prop = false;
 std::vector<std::string> late_import_paths;
 
 static std::vector<Subcontext>* subcontexts;
+
+static bool IsUsbOnlyPowerup() {
+    std::string reason_string;
+    uint64_t reason;
+    if (!ReadFileToString("/sys/bootinfo/powerup_reason_details", &reason_string) ||
+        !ParseUint(Trim(reason_string), &reason)) {
+        return false;
+    }
+
+    // Old Gemini aboot can miss USB-only boots while the charger state settles.
+    return (reason & 0xff) == 0x20;
+}
 
 void DumpState() {
     ServiceList::GetInstance().DumpState();
@@ -402,6 +416,12 @@ static void export_oem_lock_status() {
 }
 
 static void export_kernel_boot_props() {
+    if (android::base::GetBoolProperty("ro.luo.legacy.charger_boot", false) &&
+        GetProperty("ro.boot.mode", "").empty() && IsUsbOnlyPowerup()) {
+        LOG(INFO) << "USB-only powerup detected; using charger boot mode";
+        property_set("ro.boot.mode", "charger");
+    }
+
     constexpr const char* UNSET = "";
     struct {
         const char *src_prop;
