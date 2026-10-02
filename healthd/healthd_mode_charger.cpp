@@ -437,7 +437,12 @@ int Charger::SetKeyCallback(int code, int value) {
 
     /* only record the down even timestamp, as the amount
      * of time the key spent not being pressed is not useful */
-    if (down) keys_[code].timestamp = now;
+    if (down) {
+        keys_[code].timestamp = now;
+        if (code == KEY_POWER) {
+            power_key_started_blanked_ = screen_blanked_ || healthd_draw_ == nullptr;
+        }
+    }
     keys_[code].down = down;
     keys_[code].pending = true;
     if (down) {
@@ -487,6 +492,7 @@ void Charger::ProcessKey(int code, int64_t now) {
     key_state* key = &keys_[code];
 
     if (code == KEY_POWER) {
+        const bool toggle_screen = property_get_bool("ro.charger.power_key_toggle", false);
         if (key->down) {
             int64_t reboot_timeout = key->timestamp + POWER_ON_KEY_TIME;
             if (now >= reboot_timeout) {
@@ -513,17 +519,35 @@ void Charger::ProcessKey(int code, int64_t now) {
                  */
                 SetNextKeyCheck(key, POWER_ON_KEY_TIME);
 
-                /* Turn on the display and kick animation on power-key press
-                 * rather than on key release
+                /* Wake on key-down. A press that began while lit waits for
+                 * key-up so the long-press boot action still takes priority.
                  */
-                kick_animation(&batt_anim_);
+                if (!toggle_screen || power_key_started_blanked_) {
+                    kick_animation(&batt_anim_);
+                }
                 RequestDisableSuspend();
             }
         } else {
-            /* if the power key got released, force screen state cycle */
             if (key->pending) {
-                kick_animation(&batt_anim_);
-                RequestDisableSuspend();
+                if (toggle_screen && !power_key_started_blanked_) {
+                    if (!screen_blanked_ && healthd_draw_ != nullptr) {
+                        reset_animation(&batt_anim_);
+                        next_screen_transition_ = -1;
+                        healthd_draw_->blank_screen(true, static_cast<int>(drm_));
+                        if (healthd_draw_->has_multiple_connectors()) {
+                            BlankSecScreen();
+                        }
+                        screen_blanked_ = true;
+                        LOGV("[%" PRId64 "] power key blanked charger screen\n", now);
+                        if (configuration_->ChargerIsOnline()) {
+                            RequestEnableSuspend();
+                        }
+                    }
+                } else {
+                    /* A quick press can be released before its down event is processed. */
+                    kick_animation(&batt_anim_);
+                    RequestDisableSuspend();
+                }
             }
         }
     }
