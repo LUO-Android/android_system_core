@@ -415,13 +415,16 @@ static void export_oem_lock_status() {
             });
 }
 
-static void export_kernel_boot_props() {
+static void export_kernel_boot_mode() {
     if (android::base::GetBoolProperty("ro.luo.legacy.charger_boot", false) &&
         GetProperty("ro.boot.mode", "").empty() && IsUsbOnlyPowerup()) {
         LOG(INFO) << "USB-only powerup detected; using charger boot mode";
         property_set("ro.boot.mode", "charger");
     }
+    property_set("ro.bootmode", GetProperty("ro.boot.mode", "unknown"));
+}
 
+static void export_kernel_boot_props() {
     constexpr const char* UNSET = "";
     struct {
         const char *src_prop;
@@ -429,7 +432,6 @@ static void export_kernel_boot_props() {
         const char *default_value;
     } prop_map[] = {
         { "ro.boot.serialno",   "ro.serialno",   UNSET, },
-        { "ro.boot.mode",       "ro.bootmode",   "unknown", },
         { "ro.boot.baseband",   "ro.baseband",   "unknown", },
         { "ro.boot.bootloader", "ro.bootloader", "unknown", },
         { "ro.boot.hardware",   "ro.hardware",   "unknown", },
@@ -766,6 +768,9 @@ int SecondStageMain(int argc, char** argv) {
     InstallSignalFdHandler(&epoll);
 
     property_load_boot_defaults(load_debug_prop);
+    // The legacy charger gate is a product default, so resolve it only after
+    // defaults are loaded and before ro.bootmode is published as read-only.
+    export_kernel_boot_mode();
     UmountDebugRamdisk();
     fs_mgr_vendor_overlay_mount_all();
     export_oem_lock_status();
