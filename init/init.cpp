@@ -117,8 +117,10 @@ static bool IsUsbOnlyPowerup() {
         return false;
     }
 
-    // Old Gemini aboot can miss USB-only boots while the charger state settles.
-    return (reason & 0xff) == 0x20;
+    // PU_REASON_EVENT_USB_CHG is bit 4 in the MSM8996 bootinfo ABI.
+    // Ignore upper reset-reason bits, but reject any other powerup source.
+    constexpr uint64_t kUsbChargerPowerupReason = 1ULL << 4;
+    return (reason & 0xff) == kUsbChargerPowerupReason;
 }
 
 void DumpState() {
