@@ -117,10 +117,11 @@ static bool IsUsbOnlyPowerup() {
         return false;
     }
 
-    // PU_REASON_EVENT_USB_CHG is bit 4 in the MSM8996 bootinfo ABI.
+    // Legacy Gemini USB insertion powers on through PON1 (secondary PMIC).
+    // Preserve the 0730 compatibility check: observed powerup reason is 0x80020.
     // Ignore upper reset-reason bits, but reject any other powerup source.
-    constexpr uint64_t kUsbChargerPowerupReason = 1ULL << 4;
-    return (reason & 0xff) == kUsbChargerPowerupReason;
+    constexpr uint64_t kGeminiChargerPowerupReason = 0x20;
+    return (reason & 0xff) == kGeminiChargerPowerupReason;
 }
 
 void DumpState() {
